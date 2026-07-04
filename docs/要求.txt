@@ -1,0 +1,4 @@
+1）翻译论文Jacobi sets of multiple Morse functions，整理排版成单栏WORD文档格式，格式清晰。
+2）对照论文思路及其串行代码https://github.com/bhatiaharsh/JacobiSetComputation，开发出对应的并行的CUDA代码
+3）详细分析代码实现思路，结合对论文算法的理解进行分析，阐述实现细节。
+4）将上述3项内容分成3个部分，写在一个文档里，文档加封面，封面模板。
