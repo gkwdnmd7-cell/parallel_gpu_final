@@ -1,0 +1,11 @@
+# 统一换行符，减少 Windows/WSL 之间的 LF/CRLF 警告
+* text=auto
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.cpp  text eol=lf
+*.h    text eol=lf
+*.cu   text eol=lf
+*.cuh  text eol=lf
+CMakeLists.txt text eol=lf
+*.md   text eol=lf

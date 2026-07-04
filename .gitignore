@@ -1,15 +1,67 @@
-# Python virtual environment
-.venv/
+# =============================================================================
+# GPU 大作业 — .gitignore（按需维护）
+#
+# 原则：提交「源码 / 脚本 / 文档 / 配置」，忽略「可下载或可重新生成的文件」
+# 调试：git check-ignore -v <文件路径>
+# 已忽略但仍想提交：git add -f <文件路径>
+# =============================================================================
 
-# Python cache
+# --- Python ---
+.venv/
 __pycache__/
 *.pyc
 *.pyo
+*.py[cod]
+.Python
 
-# IDE
+# --- IDE / 编辑器 ---
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# OS files
+# --- 操作系统 ---
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# --- CMake / C++ 编译产物（任何目录下的 build）---
+build/
+**/build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.exe
+*.out
+*.pdb
+*.ilk
+
+# --- CUDA（后续 mycode CUDA 编译时会用到）---
+*.cubin
+*.ptx
+*.fatbin
+
+# --- 第三方依赖（由 CODE/mycode/setup_deps_wsl.sh 等脚本下载构建）---
+CODE/JacobiSetComputation-master/trimesh2/
+CODE/JacobiSetComputation-master/Detri_2.6.a/
+
+
+# --- 临时 / 提取中间文件（论文 PDF 转文本等）---
+docs/paper/*_extracted.txt
+docs/paper/*_text.txt
+docs/paper/pdf_text_output.txt
+docs/paper/full_dump.txt
+docs/paper/clean_text.txt
+
+# --- 大体积二进制（按需：若要版本管理论文 PDF，删掉下一行）---
+# docs/paper/*.pdf

@@ -22,7 +22,7 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 # --------------------------------
 set(TRIMESH_PATH "${CMAKE_CURRENT_SOURCE_DIR}/trimesh2" CACHE PATH "Path to Trimesh library")
-set(TRIMESH_LIB "${TRIMESH_PATH}/lib.Darwin64/libtrimesh.a" CACHE FILEPATH "Trimesh library")
+set(TRIMESH_LIB "${TRIMESH_PATH}/lib.Linux64/libtrimesh.a" CACHE FILEPATH "Trimesh library")
 
 message( STATUS "TRIMESH_PATH: " ${TRIMESH_PATH} )
 message( STATUS "TRIMESH_LIB: " ${TRIMESH_LIB} )
@@ -49,5 +49,5 @@ include_directories(
 set(SOURCE ./src/TriMeshJ.cpp ./src/JacobiSet.cpp ./src/main.cpp)
 set(HEADERS ./include/TriMeshJ.h ./include/JacobiSet.h ./include/sos_utils.h)
 
-add_executable(JacobiSetComputation ${SOURCE} ${HEADER})
+add_executable(JacobiSetComputation ${SOURCE} ${HEADERS})
 target_link_libraries(JacobiSetComputation ${TRIMESH_LIB} ${SOS_LIB})
