@@ -4,13 +4,14 @@
 #include <string>
 #include <vector>
 
+#include "JacobiSet.h"
 #include "TriMeshJ.h"
 #include "jacobi_gpu.h"
 
 static void print_usage(const char *program) {
     std::cerr << "Usage:\n"
               << "  " << program << " --preprocess-only <mesh.obj> [--dump-edges <edges.txt>]\n"
-              << "  " << program << " <mesh.obj> [--output <jacobi.txt>]\n";
+              << "  " << program << " <mesh.obj> [--output <jacobi.txt>] [--dump-degenerate <edges.txt>]\n";
 }
 
 static bool write_edges(const std::string &filename, const std::vector<EdgeRecord> &edges) {
@@ -71,6 +72,71 @@ static bool write_jacobi_edges(const std::string &filename,
     return true;
 }
 
+static bool write_degenerate_edges(const std::string &filename,
+                                   const std::vector<EdgeRecord> &edges,
+                                   const std::vector<JacobiGpuResult> &results) {
+    std::ofstream out(filename.c_str());
+    if (!out.is_open()) {
+        std::cerr << "failed to open degenerate dump file: " << filename << "\n";
+        return false;
+    }
+
+    out << "# edge_id e1 e2 link1 link2 is_jacobi\n";
+    for (size_t i = 0; i < edges.size(); ++i) {
+        if (!results[i].degenerate) {
+            continue;
+        }
+        out << i << " "
+            << edges[i].e1 << " "
+            << edges[i].e2 << " "
+            << edges[i].link1 << " "
+            << edges[i].link2 << " "
+            << results[i].is_jacobi << "\n";
+    }
+    return true;
+}
+
+static size_t apply_sos_fallback(const trimesh::TriMeshJ &mesh,
+                                 const std::vector<double> &f,
+                                 const std::vector<double> &g,
+                                 const std::vector<EdgeRecord> &edges,
+                                 std::vector<JacobiGpuResult> *results) {
+    if (results == nullptr) {
+        return 0;
+    }
+
+    JacobiSet js(&mesh, &f, &g);
+    size_t fallback_count = 0;
+
+    for (size_t i = 0; i < edges.size(); ++i) {
+        if (!(*results)[i].degenerate) {
+            continue;
+        }
+
+        const EdgeRecord &edge = edges[i];
+        const bool f_lower_v1 = js.is_lowerLink(edge.e1, edge.e2, edge.link1, &g);
+        const bool f_lower_v2 = js.is_lowerLink(edge.e1, edge.e2, edge.link2, &g);
+        const bool g_lower_v1 = js.is_lowerLink(edge.e1, edge.e2, edge.link1, &f);
+        const bool g_lower_v2 = js.is_lowerLink(edge.e1, edge.e2, edge.link2, &f);
+
+        const bool f_crit = (f_lower_v1 == f_lower_v2);
+        JacobiGpuResult &out = (*results)[i];
+        out.fv1 = edge.e1;
+        out.fv2 = edge.e2;
+        out.min_f = !f_lower_v1;
+        out.min_g = g_lower_v1;
+        out.pos_align = js.alignment(edge.e1, edge.e2);
+        out.is_jacobi = f_crit;
+        out.degenerate = 1;
+
+        (void)g_lower_v1;
+        (void)g_lower_v2;
+        ++fallback_count;
+    }
+
+    return fallback_count;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         print_usage(argv[0]);
@@ -81,6 +147,7 @@ int main(int argc, char **argv) {
     std::string mesh_file;
     std::string edge_dump_file;
     std::string output_file;
+    std::string degenerate_dump_file;
 
     if (preprocess_only) {
         if (argc != 3 && argc != 5) {
@@ -96,18 +163,27 @@ int main(int argc, char **argv) {
             edge_dump_file = argv[4];
         }
     } else {
-        if (argc != 2 && argc != 4) {
+        if (argc != 2 && argc != 4 && argc != 6) {
             print_usage(argv[0]);
             return EXIT_FAILURE;
         }
         mesh_file = argv[1];
         output_file = default_output_filename(mesh_file);
-        if (argc == 4) {
-            if (std::string(argv[2]) != "--output") {
+        for (int argi = 2; argi < argc; argi += 2) {
+            if (argi + 1 >= argc) {
                 print_usage(argv[0]);
                 return EXIT_FAILURE;
             }
-            output_file = argv[3];
+            const std::string flag = argv[argi];
+            const std::string value = argv[argi + 1];
+            if (flag == "--output") {
+                output_file = value;
+            } else if (flag == "--dump-degenerate") {
+                degenerate_dump_file = value;
+            } else {
+                print_usage(argv[0]);
+                return EXIT_FAILURE;
+            }
         }
     }
 
@@ -164,6 +240,8 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    const size_t sos_fallback_count = apply_sos_fallback(mesh, f, g, interior_edges, &results);
+
     size_t jacobi_count = 0;
     size_t degenerate_count = 0;
     for (size_t i = 0; i < results.size(); ++i) {
@@ -178,12 +256,21 @@ int main(int argc, char **argv) {
     if (!write_jacobi_edges(output_file, mesh, results)) {
         return EXIT_FAILURE;
     }
+    if (!degenerate_dump_file.empty()) {
+        if (!write_degenerate_edges(degenerate_dump_file, interior_edges, results)) {
+            return EXIT_FAILURE;
+        }
+    }
 
     std::cout << "jacobi_edges: " << jacobi_count << "\n";
     std::cout << "degenerate_edges: " << degenerate_count << "\n";
+    std::cout << "sos_fallback_edges: " << sos_fallback_count << "\n";
     std::cout << "gpu_kernel_ms: " << timing.kernel_ms << "\n";
     std::cout << "gpu_total_ms: " << timing.total_ms << "\n";
     std::cout << "output: " << output_file << "\n";
+    if (!degenerate_dump_file.empty()) {
+        std::cout << "degenerate_dump: " << degenerate_dump_file << "\n";
+    }
 
     return EXIT_SUCCESS;
 }
