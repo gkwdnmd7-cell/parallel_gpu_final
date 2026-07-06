@@ -901,20 +901,444 @@ device_is_lower_link(...);
 
 ### 7.1 环境验证
 
-待补充。
+环境验证的目标是确认 CUDA 编译器、NVIDIA GPU 驱动以及本项目的 CUDA 程序构建流程均可正常工作。测试在 WSL Ubuntu 环境中进行，首先进入并行代码目录：
+
+```bash
+cd "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode"
+```
+
+#### 7.1.1 CUDA 编译器验证
+
+执行：
+
+```bash
+nvcc --version
+```
+
+输出如下：
+
+```text
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2023 NVIDIA Corporation
+Built on Fri_Jan__6_16:45:21_PST_2023
+Cuda compilation tools, release 12.0, V12.0.140
+Build cuda_12.0.r12.0/compiler.32267302_0
+```
+
+说明 WSL 中已安装 CUDA Toolkit，且 `nvcc` 编译器可用。本项目后续 CUDA 代码均使用该编译器构建。
+
+#### 7.1.2 GPU 运行环境验证
+
+执行：
+
+```bash
+nvidia-smi
+```
+
+输出显示：
+
+```text
+NVIDIA-SMI 580.105.07
+Driver Version: 581.80
+CUDA Version: 13.0
+GPU Name: NVIDIA GeForce RTX 4060
+```
+
+可以看到 WSL 能够正确识别 NVIDIA GeForce RTX 4060，说明 GPU 已经透传到 WSL 环境中。`nvidia-smi` 中显示的 CUDA Version 为驱动支持的最高 CUDA 运行时版本，而 `nvcc --version` 显示的是实际安装的 CUDA Toolkit 版本。驱动版本高于 Toolkit 版本是正常情况，能够向下兼容 CUDA 12.0 编译生成的程序。
+
+进入 WSL 时出现提示：
+
+```text
+wsl: 检测到 localhost 代理配置，但未镜像到 WSL。NAT 模式下的 WSL 不支持 localhost 代理。
+```
+
+该提示与 CUDA 编译运行无关，只表示 Windows 侧 localhost 代理没有自动映射到 WSL。本次测试中 `nvcc`、`nvidia-smi` 和构建过程均正常，因此该提示不影响本项目运行。
+
+#### 7.1.3 项目构建验证
+
+执行：
+
+```bash
+bash build_cuda_wsl.sh
+```
+
+输出如下：
+
+```text
+-- Configuring done (0.1s)
+-- Generating done (0.2s)
+-- Build files have been written to: /mnt/d/金介然/大三下/gpu/大作业/CODE/mycode/build
+[100%] Built target jacobi_cuda
+Built: /mnt/d/金介然/大三下/gpu/大作业/CODE/mycode/build/jacobi_cuda
+```
+
+构建过程成功生成 `build/jacobi_cuda` 可执行文件，说明 CMake、C++ 编译器、CUDA 编译器、`trimesh2` 静态库以及 SoS 静态库均能正确协同工作。
+
+综上，CUDA 并行程序的开发与运行环境验证通过。
 
 ### 7.2 功能正确性验证
 
-待补充。
+功能正确性验证按模块逐步进行，目标是分别确认 CPU 预处理、GPU 基础计算、退化边导出和 SoS 回退均能正常工作。测试均在 `CODE/mycode` 目录下执行：
+
+```bash
+cd "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode"
+```
+
+#### 7.2.1 CPU 预处理验证
+
+执行：
+
+```bash
+bash test_preprocess.sh
+```
+
+输出如下：
+
+```text
+Reading /mnt/d/金介然/大三下/gpu/大作业/CODE/JacobiSetComputation-master/test_torus.obj... Done.
+Computing edges... Done. in 0.169000 msec.
+Finding vertex neighbors... Done.
+mesh: /mnt/d/金介然/大三下/gpu/大作业/CODE/JacobiSetComputation-master/test_torus.obj
+vertices: 512
+edges: 1536
+faces: 1024
+interior_edges: 1536
+```
+
+该结果说明程序能够正确读取 `test_torus.obj`，并得到：
+
+- 顶点数：512；
+- 边数：1536；
+- 面数：1024；
+- 内部边数：1536。
+
+对于该 torus 网格，所有边都是内部边，因此 `interior_edges` 与 `edges` 数量一致。该测试验证了 CPU 端边表预处理逻辑正确。
+
+#### 7.2.2 GPU 基础计算验证
+
+执行：
+
+```bash
+bash test_gpu_basic.sh
+```
+
+输出如下：
+
+```text
+vertices: 512
+edges: 1536
+faces: 1024
+interior_edges: 1536
+ -------------- Creating SOS Matrix ........... (#fix=15.14) scale = 0.000000000000010
+SoS: matrix[512,2] @ 5 Lia digits; lia_length (10); 0.047 Mb.
+jacobi_edges: 64
+degenerate_edges: 16
+sos_fallback_edges: 16
+gpu_kernel_ms: 1.10797
+gpu_total_ms: 5.44378
+output: /tmp/test_torus_gpu_jacobi.txt
+```
+
+该测试说明 CUDA 程序能够完成 Jacobi 集计算，并在 torus 示例上得到 64 条 Jacobi 边。`gpu_kernel_ms` 表示 CUDA kernel 本身的运行时间，`gpu_total_ms` 表示包括 GPU 内存分配、数据传输、kernel 执行和结果拷回在内的 GPU 调用时间。
+
+输出中的 `degenerate_edges: 16` 表示 GPU 判定过程中有 16 条边触发近退化条件。`sos_fallback_edges: 16` 表示这些边均被 CPU SoS 分支重新计算并覆盖结果。
+
+#### 7.2.3 退化边导出验证
+
+执行：
+
+```bash
+bash test_degenerate_dump.sh
+```
+
+输出如下：
+
+```text
+vertices: 512
+edges: 1536
+faces: 1024
+interior_edges: 1536
+ -------------- Creating SOS Matrix ........... (#fix=15.14) scale = 0.000000000000010
+SoS: matrix[512,2] @ 5 Lia digits; lia_length (10); 0.047 Mb.
+jacobi_edges: 64
+degenerate_edges: 16
+sos_fallback_edges: 16
+gpu_kernel_ms: 0.801792
+gpu_total_ms: 3.34326
+output: /tmp/test_torus_gpu_jacobi.txt
+degenerate_dump: /tmp/test_torus_degenerate_edges.txt
+```
+
+该测试验证了 `--dump-degenerate` 功能。程序不仅能够统计退化边数量，还能将退化边列表写入 `/tmp/test_torus_degenerate_edges.txt`，为调试和分析 SoS 回退提供依据。
+
+#### 7.2.4 SoS 回退验证
+
+执行：
+
+```bash
+bash test_sos_fallback.sh
+```
+
+输出如下：
+
+```text
+vertices: 512
+edges: 1536
+faces: 1024
+interior_edges: 1536
+ -------------- Creating SOS Matrix ........... (#fix=15.14) scale = 0.000000000000010
+SoS: matrix[512,2] @ 5 Lia digits; lia_length (10); 0.047 Mb.
+jacobi_edges: 64
+degenerate_edges: 16
+sos_fallback_edges: 16
+gpu_kernel_ms: 0.959488
+gpu_total_ms: 4.23072
+output: /tmp/test_torus_gpu_sos_jacobi.txt
+```
+
+该结果说明 CPU SoS 回退机制正常工作。GPU 标记出的 16 条退化边均被回退到串行 SoS 逻辑重新计算，最终输出文件为 `/tmp/test_torus_gpu_sos_jacobi.txt`。
+
+#### 7.2.5 小结
+
+以上四个功能测试分别覆盖了：
+
+- CPU 拓扑预处理；
+- GPU 并行 Jacobi 判定；
+- 退化边检测与导出；
+- CPU SoS 精确回退。
+
+测试结果表明，并行程序的各个功能模块均可正常工作，且在标准 torus 示例上得到的 Jacobi 边数为 64，与串行参考结果一致。
 
 ### 7.3 串行与并行输出对拍
 
-待补充。
+本节用于验证并行程序最终输出是否与串行参考程序一致。由于 CUDA 并行程序内部采用“每条边对应一个结果槽位”的方式，理论上未来如果进一步改为 GPU 端压缩输出，输出顺序可能发生变化，因此本项目同时使用两种方式验证：
+
+1. 使用 `compare_jacobi.py` 做顺序无关的边集比较；
+2. 使用 `diff` 直接比较当前输出文件内容。
+
+#### 7.3.1 边集对拍
+
+执行：
+
+```bash
+cd "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode"
+bash test_compare_jacobi.sh
+```
+
+输出如下：
+
+```text
+Reading /mnt/d/金介然/大三下/gpu/大作业/CODE/JacobiSetComputation-master/test_torus.obj... Done.
+Computing edges... Done. in 0.145000 msec.
+Finding vertex neighbors... Done.
+mesh: /mnt/d/金介然/大三下/gpu/大作业/CODE/JacobiSetComputation-master/test_torus.obj
+vertices: 512
+edges: 1536
+faces: 1024
+interior_edges: 1536
+ -------------- Creating SOS Matrix ........... (#fix=15.14) scale = 0.000000000000010
+SoS: matrix[512,2] @ 5 Lia digits; lia_length (10); 0.047 Mb.
+jacobi_edges: 64
+degenerate_edges: 16
+sos_fallback_edges: 16
+gpu_kernel_ms: 0.856064
+gpu_total_ms: 3.74022
+output: /tmp/test_torus_gpu_sos_jacobi.txt
+reference_edges: 64
+candidate_edges: 64
+match: yes
+```
+
+其中：
+
+- `reference_edges: 64` 表示串行参考结果中有 64 条 Jacobi 边；
+- `candidate_edges: 64` 表示 GPU+SoS 并行结果中也有 64 条 Jacobi 边；
+- `match: yes` 表示两者边集完全一致。
+
+`compare_jacobi.py` 对每条边只比较顶点编号，并将 `(a,b)` 规范化为小编号在前，因此比较过程不依赖输出顺序。这说明即使并行程序未来改变输出顺序，只要计算得到的 Jacobi 边集合一致，该测试仍能正确验证结果。
+
+#### 7.3.2 文本文件直接比较
+
+执行：
+
+```bash
+diff -u "../JacobiSetComputation-master/test_torus_jacobi.txt" /tmp/test_torus_gpu_sos_jacobi.txt
+```
+
+该命令没有任何输出。对于 `diff` 而言，无输出表示两个文件内容完全一致。也就是说，当前并行程序生成的 `/tmp/test_torus_gpu_sos_jacobi.txt` 不仅在边集合上与串行参考一致，而且在文本内容和输出顺序上也与串行文件一致。
+
+#### 7.3.3 小结
+
+串行与并行输出对拍结果表明：
+
+- 串行参考结果：64 条 Jacobi 边；
+- CUDA hybrid 结果：64 条 Jacobi 边；
+- 顺序无关边集比较：`match: yes`；
+- `diff` 文本比较：无差异。
+
+因此，在 torus 标准测试数据上，GPU 并行计算结合 CPU SoS 回退后，最终输出与串行 SoS 版本完全一致。
 
 ### 7.4 性能测试与加速比分析
 
-待补充。
+性能测试用于观察串行版本与 CUDA hybrid 版本在不同网格规模下的耗时变化。测试脚本为 `benchmark_jacobi.py`，其流程为：
+
+1. 使用 `mesh_make` 自动生成 torus 网格；
+2. 运行串行 `JacobiSetComputation`；
+3. 运行 CUDA hybrid 版本；
+4. 使用 `compare_jacobi.py` 对拍输出；
+5. 将耗时、Jacobi 边数、退化边数、加速比写入 CSV。
+
+#### 7.4.1 benchmark 冒烟测试
+
+首先执行小规模冒烟测试：
+
+```bash
+cd "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode"
+bash test_benchmark_smoke.sh
+```
+
+输出如下：
+
+```text
+32x16: cpu_wall=78.414 ms, gpu_wall=312.563 ms, speedup=0.251x, match=yes
+wrote: /tmp/jacobi_benchmark_smoke.csv
+```
+
+该测试说明 benchmark 脚本可以正常生成网格、运行串行与并行程序、完成正确性对拍并输出 CSV。`match=yes` 表示该规模下 GPU 输出与串行输出一致。
+
+#### 7.4.2 多规模性能测试
+
+执行：
+
+```bash
+python3 benchmark_jacobi.py --sizes 32x16,64x32,128x64,256x128,512x256 --output /tmp/jacobi_benchmark.csv
+cat /tmp/jacobi_benchmark.csv
+```
+
+终端输出如下：
+
+```text
+32x16: cpu_wall=45.496 ms, gpu_wall=273.897 ms, speedup=0.166x, match=yes
+64x32: cpu_wall=93.851 ms, gpu_wall=247.151 ms, speedup=0.380x, match=yes
+128x64: cpu_wall=190.336 ms, gpu_wall=287.831 ms, speedup=0.661x, match=yes
+256x128: cpu_wall=519.644 ms, gpu_wall=464.860 ms, speedup=1.118x, match=yes
+512x256: cpu_wall=1802.050 ms, gpu_wall=1115.213 ms, speedup=1.616x, match=yes
+wrote: /tmp/jacobi_benchmark.csv
+```
+
+CSV 内容如下：
+
+```text
+u,v,vertices,edges,jacobi_edges,degenerate_edges,sos_fallback_edges,cpu_wall_ms,gpu_wall_ms,gpu_kernel_ms,gpu_total_ms,speedup_wall,match
+32,16,512,1536,64,16,16,45.496,273.897,0.963584,4.374850,0.166,yes
+64,32,2048,6144,128,32,32,93.851,247.151,0.856064,3.649280,0.380,yes
+128,64,8192,24576,256,64,64,190.336,287.831,1.000450,3.816610,0.661,yes
+256,128,32768,98304,512,128,128,519.644,464.860,1.132030,4.999230,1.118,yes
+512,256,131072,393216,1024,260,260,1802.050,1115.213,1.094500,6.059900,1.616,yes
+```
+
+为便于阅读，整理如下：
+
+| 网格规模 | 顶点数 | 边数 | Jacobi 边数 | 退化边数 | CPU 总时间(ms) | GPU 端到端时间(ms) | GPU kernel(ms) | 加速比 | 对拍 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 32x16 | 512 | 1536 | 64 | 16 | 45.496 | 273.897 | 0.963584 | 0.166x | yes |
+| 64x32 | 2048 | 6144 | 128 | 32 | 93.851 | 247.151 | 0.856064 | 0.380x | yes |
+| 128x64 | 8192 | 24576 | 256 | 64 | 190.336 | 287.831 | 1.000450 | 0.661x | yes |
+| 256x128 | 32768 | 98304 | 512 | 128 | 519.644 | 464.860 | 1.132030 | 1.118x | yes |
+| 512x256 | 131072 | 393216 | 1024 | 260 | 1802.050 | 1115.213 | 1.094500 | 1.616x | yes |
+
+#### 7.4.3 结果分析
+
+从正确性看，所有规模的 `match` 均为 `yes`，说明不同规模下 CUDA hybrid 输出都与串行输出一致。
+
+从性能看，小规模网格下 GPU 端到端时间高于 CPU。例如 `32x16` 时，CPU 时间为 `45.496 ms`，GPU 端到端时间为 `273.897 ms`，加速比只有 `0.166x`。这是合理现象，原因是小规模计算量较小，GPU kernel 本身虽然只需约 `0.96 ms`，但程序整体还包含：
+
+- 网格读取；
+- CPU 拓扑预处理；
+- CUDA 内存分配；
+- CPU 到 GPU 数据传输；
+- GPU 到 CPU 结果拷回；
+- SoS 矩阵初始化与退化边回退；
+- 进程启动与文件输出。
+
+这些固定开销在小规模下占主导，因此端到端加速不明显。
+
+随着网格规模增大，逐边判定的计算量增加，GPU 并行优势开始体现。`256x128` 网格时，GPU 端到端时间为 `464.860 ms`，CPU 时间为 `519.644 ms`，加速比达到 `1.118x`。到 `512x256` 网格时，CPU 时间为 `1802.050 ms`，GPU 端到端时间为 `1115.213 ms`，加速比达到 `1.616x`。
+
+还可以观察到，GPU kernel 时间始终约为 1 ms 左右，即使在 `512x256` 的 393216 条边规模下，核心判定 kernel 仍然只需约 `1.09 ms`。这说明真正被并行化的逐边 Jacobi 判定在 GPU 上执行效率很高。端到端时间主要受 CPU 预处理、I/O、数据传输和 SoS 回退等非 kernel 部分影响。
+
+#### 7.4.4 小结
+
+性能测试表明：
+
+- CUDA hybrid 版本在所有测试规模下均保持正确性；
+- 小规模时由于固定开销较大，端到端速度慢于串行；
+- 随着边数增大，GPU 并行判定优势逐渐显现；
+- 在 `512x256` 网格上，端到端加速比达到 `1.616x`；
+- GPU kernel 本身耗时很低，说明核心逐边判定已经被有效并行化。
 
 ### 7.5 可视化验证
 
-待补充。
+可视化验证用于确认输出的 Jacobi 集在几何形态上符合预期。由于程序输出的是 `*_jacobi.txt` 文本格式，需要先转换为 ParaView 可读取的 VTK 文件。
+
+#### 7.5.1 VTK 文件生成
+
+在 WSL 中进入并行代码目录：
+
+```bash
+cd "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode"
+```
+
+执行转换命令：
+
+```bash
+python3 jacobi_to_vtk.py /tmp/test_torus_gpu_sos_jacobi.txt
+```
+
+终端输出如下：
+
+```text
+Wrote /tmp/test_torus_gpu_sos_jacobi.vtk
+```
+
+说明 GPU+SoS 输出文件已经成功转换为 legacy VTK 格式。为了便于在 Windows 版 ParaView 中打开，将其复制到项目目录：
+
+```bash
+cp /tmp/test_torus_gpu_sos_jacobi.vtk "/mnt/d/金介然/大三下/gpu/大作业/CODE/mycode/test_torus_gpu_sos_jacobi.vtk"
+```
+
+生成的可视化文件为：
+
+```text
+CODE/mycode/test_torus_gpu_sos_jacobi.vtk
+```
+
+#### 7.5.2 ParaView 可视化观察
+
+在 ParaView 中分别进行了三种观察：
+
+1. **仅加载 `test_torus_gpu_sos_jacobi.vtk`**  
+   该文件只包含 Jacobi 集线段，不包含原始 torus 曲面。可视化结果显示为平面上的两条同心圆。这与理论预期一致：当前测试函数为 `f=y`、`g=x`，在对称 torus 上得到的 Jacobi 集位于 `z≈0` 的截面上，因此从正面看表现为内外两条闭合圆曲线。
+
+   ![仅加载 Jacobi 集 VTK 文件时显示的两条同心圆](1.png)
+
+2. **同时加载 `test_torus.obj` 和 `test_torus_gpu_sos_jacobi.vtk` 的正面图**  
+   在正面视角下，可以看到 Jacobi 集曲线叠加在 torus 上。由于视角沿着 torus 轴向观察，红色 Jacobi 曲线与圆环边界视觉上较接近，因此同心圆结构不如单独打开 `.vtk` 时明显。但可以观察到 Jacobi 曲线与 torus 几何位置一致，位于圆环的内外圈附近。
+
+   ![Jacobi 集与 torus 叠加后的正面图](2.png)
+
+3. **同时加载 `test_torus.obj` 和 `test_torus_gpu_sos_jacobi.vtk` 的侧面放大图**  
+   侧面放大观察时，红色 Jacobi 曲线更加清晰。可以看到曲线贴合在 torus 表面，并分别位于圆环外侧和内侧的环向位置。这说明并行程序输出的 Jacobi 边不仅在文本结果上与串行版本一致，在几何空间中也落在正确的网格表面位置。
+
+   ![Jacobi 集与 torus 叠加后的侧面放大图](3.png)
+
+从可视化形态看，GPU+SoS 版本输出的 Jacobi 集满足以下特征：
+
+- 单独显示时为两条闭合曲线；
+- 从正面看呈两条同心圆；
+- 与 torus 曲面叠加后，曲线位于圆环表面的内外两圈；
+- 侧面放大后，红色曲线贴附在 torus 表面，没有出现明显偏移或断裂。
+
+#### 7.5.3 小结
+
+可视化验证进一步说明，CUDA hybrid 程序输出的 Jacobi 集不仅在数值对拍中与串行结果一致，而且在几何形态上也符合预期。对于 `f=y`、`g=x` 的 torus 示例，Jacobi 集表现为 `z≈0` 截面上的两条闭合圆曲线，叠加到 torus 曲面后对应圆环的内外两圈。该结果与前面文本对拍和性能测试共同验证了并行实现的正确性。
