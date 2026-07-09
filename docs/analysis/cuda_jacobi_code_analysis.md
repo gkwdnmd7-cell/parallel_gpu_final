@@ -556,39 +556,39 @@ struct JacobiGpuResult {
 并行代码位于 `CODE/mycode`，主要文件如下：
 
 （1）`main_cuda.cpp`
-  （1）CPU 端主程序；
-  （2）网格读取与边表预处理；
-  （3）GPU 调用；
-  （4）CPU SoS 回退；
-  （5）结果输出。
+  - CPU 端主程序；
+  - 网格读取与边表预处理；
+  - GPU 调用；
+  - CPU SoS 回退；
+  - 结果输出。
 
 （2）`jacobi_cuda.cu`
-  （1）CUDA device 函数；
-  （2）CUDA kernel；
-  （3）host 端 CUDA 内存管理与 kernel launch。
+  - CUDA device 函数；
+  - CUDA kernel；
+  - host 端 CUDA 内存管理与 kernel launch。
 
 （3）`jacobi_gpu.h`
-  （1）CPU/GPU 共享的数据结构；
-  （2）`compute_jacobi_gpu()` 接口声明。
+  - CPU/GPU 共享的数据结构；
+  - `compute_jacobi_gpu()` 接口声明。
 
 （4）`CMakeLists.txt`
-  （1）构建 CUDA 程序；
-  （2）链接 `trimesh2` 和 SoS。
+  - 构建 CUDA 程序；
+  - 链接 `trimesh2` 和 SoS。
 
 （5）`build_cuda_wsl.sh`
-  （1）WSL 下的一键构建脚本。
+  - WSL 下的一键构建脚本。
 
 （6）`compare_jacobi.py`
-  （1）正确性比对脚本。
+  - 正确性比对脚本。
 
 （7）`benchmark_jacobi.py`
-  （1）性能测试脚本。
+  - 性能测试脚本。
 
 （8）`test_*.sh`
-  （1）各里程碑自动测试脚本。
+  - 各里程碑自动测试脚本。
 
 （9）`DEVELOPMENT_LOG.md`
-  （1）开发过程记录。
+  - 开发过程记录。
 
 #### 3.5.2 `jacobi_gpu.h`：共享数据结构与 GPU 接口
 
